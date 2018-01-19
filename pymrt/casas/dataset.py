@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import humanize
 import logging
 import copy
 import numpy as np
@@ -91,6 +92,8 @@ class CASASDataset:
             post-processing for activity recognition and multi-resident
             tracking.
         event_list (:obj:`list`): List of loaded events.
+        stats (:obj:`dict`): Dictionary containing simple statistics about
+            the dataset.
 
     Parameters:
         directory (:obj:`str`): Directory that stores CASAS smart home data
@@ -101,33 +104,36 @@ class CASASDataset:
     """
 
     def __init__(self, directory, site_dir=None, site=None):
-        if os.path.isdir(directory):
-            self.directory = directory
-            dataset_json_fname = os.path.join(directory, 'dataset.json')
-            if os.path.exists(dataset_json_fname):
-                f = open(dataset_json_fname, 'r')
-                self.data_dict = json.load(f)
-                self.site = self._get_site(site_dir=site_dir, site=site)
-                self.activity_dict = {activity['name']: activity for activity in
-                                      self.data_dict['activities']}
-                self.resident_dict = {resident['name']: resident for resident in
-                                      self.data_dict['residents']}
-                self.activity_indices_dict = self._get_activity_indices()
-                self.enabled_sensor_types = self.site.get_all_sensor_types()
-                # Sensor list and indices dict populated after dataset is loaded
-                self.sensor_list = []
-                self.sensor_indices_dict = {}
-                self.event_list = []
-                # Additional information about the dataset
-                self.description = self.data_dict[
-                    'description'] if 'description' in self.data_dict else ""
-            else:
-                logger.error(
-                    'Smart home metadata file %s does not exist. Create an '
-                    'empty CASASHome Structure'
-                    % dataset_json_fname)
-                raise FileNotFoundError(
-                    'File %s not found.' % dataset_json_fname)
+        # Sanity checks
+        if not os.path.isdir(directory):
+            raise NotADirectoryError('%s is not a directory.' % directory)
+        dataset_json_fname = os.path.join(directory, 'dataset.json')
+        if not os.path.exists(dataset_json_fname):
+            raise FileNotFoundError('CASAS dataset meta-data file '
+                                    '\'data.json\' is not found under '
+                                    'directory %s. Please check if the '
+                                    'directory provided is correct.' %
+                                    directory)
+        # Finished check - Start loading data from CASAS dataset
+        self.directory = directory
+        f = open(dataset_json_fname, 'r')
+        self.data_dict = json.load(f)
+        self.site = self._get_site(site_dir=site_dir, site=site)
+        self.activity_dict = {activity['name']: activity for activity in
+                              self.data_dict['activities']}
+        self.resident_dict = self._get_residents()
+        # Generate indices for each activity
+        self.activity_indices_dict = self._get_activity_indices()
+        self.enabled_sensor_types = self.site.get_all_sensor_types()
+        # Sensor list and indices dict populated after dataset is loaded
+        self.sensor_list = []
+        self.sensor_indices_dict = {}
+        self.event_list = []
+        # Simple statistics
+        self.stats = {}
+        # Additional information about the dataset
+        self.description = self.data_dict[
+            'description'] if 'description' in self.data_dict else ""
 
     def enable_sensor_with_types(self, type_array):
         """Load only certain type of sensors in the dataset
@@ -144,6 +150,31 @@ class CASASDataset:
                 num_errors += 1
         if num_errors == 0:
             self.enabled_sensor_types = enabled_sensor_types
+
+    def _get_residents(self):
+        """Analyze residents information from loaded meta-data.
+        Note that self.data_dict needs to be populated from the json file first
+        before this method is called.
+        """
+        resident_dict = {}
+        multi_resident_names = []
+        for resident in self.data_dict['residents']:
+            if ';' in resident['name']:
+                multi_resident_names.append(resident['name'])
+            else:
+                resident_dict[resident['name']] = resident
+        # Check and see if multi-resident names are composed of residents listed
+        # in the meta-data
+        for multi_resident_name in multi_resident_names:
+            name_list = multi_resident_name.split(';')
+            for name in name_list:
+                if name not in resident_dict:
+                    logger.warning('Resident %s in name %s does not exist in '
+                                   'the meta-data. Please check the data '
+                                   'integrity of the annotated dataset.' %
+                                   (name, multi_resident_names))
+        # Return the dictionary
+        return resident_dict
 
     def _get_site(self, site_dir=None, site=None):
         """Returns the smart home site
@@ -194,10 +225,7 @@ class CASASDataset:
         Returns:
             :obj:`dict`: A dictionary containing activity information
         """
-        for activity in self.data_dict['activities']:
-            if activity['name'] == label:
-                return activity
-        return None
+        return self.activity_dict.get(label, None)
 
     def get_activity_color(self, label):
         """Find the color string of the activity
@@ -223,10 +251,7 @@ class CASASDataset:
         Returns:
             :obj:`dict`: A Dictionary that stores resident information
         """
-        for resident in self.resident_list:
-            if resident['name'] == name:
-                return resident
-        return None
+        return self.resident_dict.get(name, None)
 
     def get_resident_color(self, name):
         """Get the color string for the resident
@@ -271,103 +296,181 @@ class CASASDataset:
         """Get a dictionary for residents id look-up
         """
         resident_indices_dict = {}
-        for key, resident in enumerate(self.resident_list):
-            resident_indices_dict[resident['name']] = key
+        index = 0
+        for resident_name in self.resident_dict:
+            resident_indices_dict[resident_name] = index
+            index += 1
         return resident_indices_dict
 
-    def load_events(self, show_progress=False):
+    def load_events(self, show_progress=True):
         """Load events from CASAS event.csv file
+
+        Args:
+            show_progress (:obj:`bool`): Show progress of event loading
         """
+        # Sanity check
+        events_fname = os.path.join(self.directory, 'events.csv')
+        if not os.path.isfile(events_fname):
+            raise FileNotFoundError('Sensor event records not found in CASAS '
+                                    'dataset %s. Check if event.csv exists '
+                                    'under directory %s.' % (self.get_name(),
+                                                             self.directory))
+        if show_progress:
+            file_size = os.path.getsize(events_fname)
+            sys.stdout.write('Loading events from events.csv. Total size: ' +
+                             humanize.naturalsize(file_size, True) + '\n')
+            chunk_size = file_size / 100
+            size_loaded = 0
+            loaded_percentage = 0
         # Clear event_list
         self.event_list = []
         # Initialize supporting data structure
         # Record all sensor names that is valid and presented in the event file
-        # loaded. Contain all valid sensor names from the site, use dict for
-        # faster search.
-        # Enabled Identifier
-        sensors_notfound_list = {}
+        #  loaded. Contain all valid sensor names from the site, use dict for
+        #  faster search.
         valid_sensor_names = {key: None for key in
                               self.site.get_all_sensor_names()}
+        # List of sensors that appeared in sensor events but are not found in
+        #  valid sensor names dictionary
+        sensors_notfound_list = {}
+        # Records all the enabled valid sensors that has one or more than one
+        #  record in the sensor event file.
         logged_sensor_names = {}
+        # A set contains enabled sensor names.
         enabled_sensor_names = set()
         for sensor_type, sensor_names in self.enabled_sensor_types.items():
             enabled_sensor_names = enabled_sensor_names.union(sensor_names)
-        # Get events file name
-        events_fname = os.path.join(self.directory, 'events.csv')
-        # Start reading event file
-        if os.path.isfile(events_fname):
-            f = open(events_fname, 'r')
-            line_number = 0
-            for line in f:
-                line_number += 1
-                word_list = str(str(line).strip()).split(',')
-                if len(word_list) < 3:
-                    # ! If not enough item (at least 3) in the entry for a sensor event,
-                    # ! report error and continue.
-                    logger.error(
-                        'Error parsing %s:%d' % (events_fname, line_number))
-                    logger.error('  %s' % line)
-                    continue
-                # Parse datetime
-                event_time = dateutil.parser.parse(word_list[0])
-                # Check sensor name
-                event_sensor = word_list[1]
-                if event_sensor not in valid_sensor_names:
-                    # ! If event sensor is not found in the site information, record the issue and continue.
-                    if event_sensor not in sensors_notfound_list:
-                        sensors_notfound_list[event_sensor] = 1
-                        logger.warning(
-                            'Sensor name %s not found in home metadata' % event_sensor)
-                    sensors_notfound_list[event_sensor] += 1
-                    continue
-                # ! If sensor name is found, and its type is enabled.
-                if event_sensor in enabled_sensor_names:
-                    if event_sensor not in logged_sensor_names:
-                        logged_sensor_names[event_sensor] = None
+        # Residents that are tagged in the dataset
+        logged_residents = {}
+        residents_notfound_list = {}
+        # Activities that are tagged in the dataset
+        logged_activities = {}
+        activities_notfound_list = {}
+
+        # Start reading event file. The process loads all sensor events into
+        #  self.event_list. If the sensor reporting the event is enabled,
+        #  the event is appended to the list. If it is disabled, the event is
+        #  skipped. If the sensor cannot be found in the meta-data of smart
+        #  home site, an error is reported and the event is skipped.
+        f = open(events_fname, 'r')
+        line_number = 0
+        for line in f:
+            line_number += 1
+            word_list = str(str(line).strip()).split(',')
+            if len(word_list) < 3:
+                # If not enough item (at least 3) in the entry for a sensor
+                #  event, report error and continue.
+                logger.error(
+                    'Error parsing %s:%d' % (events_fname, line_number))
+                logger.error('  %s' % line)
+                continue
+            # Parse datetime
+            event_time = dateutil.parser.parse(word_list[0])
+            # Check sensor name
+            event_sensor = word_list[1]
+            if event_sensor not in valid_sensor_names:
+                # If event sensor is not found in the site information,
+                # record the issue and continue.
+                if event_sensor not in sensors_notfound_list:
+                    sensors_notfound_list[event_sensor] = 1
+                    logger.warning(
+                        'Sensor name %s not found in home metadata' %
+                        event_sensor)
+                sensors_notfound_list[event_sensor] += 1
+                continue
+            # If sensor name is found, and its type is enabled, log its name.
+            if event_sensor in enabled_sensor_names:
+                if event_sensor not in logged_sensor_names:
+                    logged_sensor_names[event_sensor] = 0
                 else:
-                    # ! The sensor is disabled, skip to next event.
-                    continue
-                event_message = word_list[2]
-                # Parse resident name and activity label
-                resident = None
-                activity = None
-                if len(word_list) > 3:
-                    resident = word_list[3] if word_list[3] != "" else None
-                    # Check if the resident name is legit
-                    if resident is not None and \
-                            resident not in self.resident_dict:
-                        logger.warning(
-                            "Resident %s is not found in resident list." %
-                            resident)
-                    if len(word_list) > 4:
-                        activity = word_list[4] if word_list[4] != "" else None
-                        if activity is not None and \
-                                activity not in self.activity_dict:
-                            logger.warning(
-                                'Activity %s not found in activity list. '
-                                'Added it now.' % activity)
-                cur_data_dict = {
-                    'datetime': event_time,
-                    'sensor': event_sensor,
-                    'message': event_message,
-                    'resident': resident,
-                    'activity': activity
-                }
-                # Add Corresponding Labels
-                self.event_list.append(cur_data_dict)
-                if show_progress:
-                    if line_number == 1:
-                        old_date = event_time.date()
-                    if old_date != event_time.date():
-                        sys.stdout.write('%s\r' % word_list[0])
-                        old_date = event_time.date()
-            # Finished reading the whole file, create sensor list
-            for sensor in self.site.sensor_list:
-                if sensor['name'] in logged_sensor_names:
-                    self.sensor_list.append(sensor)
-            self._get_sensor_indices()
-        else:
-            logger.error('Cannot find data file %s\n' % events_fname)
+                    logged_sensor_names[event_sensor] += 1
+            else:
+                # The sensor is disabled, skip to next event.
+                continue
+            event_message = word_list[2]
+            # Parse resident name and activity label
+            # In order to accommodate multi-resident scenario, resident and
+            # activities can both be an array.
+            if len(word_list) > 3:
+                # Parse residents
+                residents = word_list[3] if word_list[3] != "" else None
+                # Check if the resident name is legit
+                if residents is not None:
+                    residents = residents.split(';')
+                    # Check if all residents are valid
+                    for i in range(len(residents) - 1, -1, -1):
+                        if residents[i] not in self.resident_dict:
+                            resident = residents.pop(i)
+                            if resident not in residents_notfound_list:
+                                residents_notfound_list[resident] = 0
+                                logger.warning(
+                                    "Resident %s is not found in resident list."
+                                    % resident)
+                            else:
+                                residents_notfound_list[resident] += 1
+                        else:
+                            resident = residents[i]
+                            if resident in logged_residents:
+                                logged_residents[resident] += 1
+                            else:
+                                logged_residents[resident] = 0
+                else:
+                    residents = []
+            else:
+                residents = []
+
+            if len(word_list) > 4:
+                # Activities list
+                activities = word_list[4] if word_list[4] != "" else None
+                # Check if the resident name is legit
+                if activities is not None:
+                    activities = activities.split(';')
+                    # Check if all residents are valid
+                    for i in range(len(activities) - 1, -1, -1):
+                        if activities[i] not in self.resident_dict:
+                            activity = activities.pop(i)
+                            if activity not in activities_notfound_list:
+                                activities_notfound_list[activity] = 0
+                                logger.warning(
+                                    "Activity %s is not found in activity list."
+                                    % activity)
+                            else:
+                                activities_notfound_list[activity] += 1
+                        else:
+                            if activity in logged_activities:
+                                logged_activities[activity] += 1
+                            else:
+                                logged_activities[activity] = 0
+                else:
+                    activities = []
+            else:
+                activities = []
+
+            cur_data_dict = {
+                'datetime': event_time,
+                'sensor': event_sensor,
+                'message': event_message,
+                'resident': residents,
+                'activity': activities
+            }
+
+            # Add Corresponding Labels
+            self.event_list.append(cur_data_dict)
+            if show_progress:
+                # Figure out a way of showing progress
+                size_loaded += len(line)
+                if size_loaded > chunk_size:
+                    loaded_percentage += int(size_loaded / chunk_size)
+                    size_loaded = size_loaded % chunk_size
+                    sys.stdout.write("\rProgress: %d%%" %
+                                     int(loaded_percentage))
+        if show_progress:
+            sys.stdout.write("\rProgress: 100%%\n")
+        # Finished reading the whole file, create sensor list
+        for sensor in self.site.sensor_list:
+            if sensor['name'] in logged_sensor_names:
+                self.sensor_list.append(sensor)
+        self._get_sensor_indices()
 
     def to_sensor_sequence(self, ignore_off=True):
         """Change the loaded events into sensor sequence (timetag ignored).
@@ -383,7 +486,9 @@ class CASASDataset:
                 sensor_seq.append(self.sensor_indices_dict[event['sensor']])
         return sensor_seq
 
-    def to_observation_track(self, default_off_interval=5,
+    def to_observation_track(self, show_progress=True,
+                             sensor_check=False,
+                             default_off_interval=5,
                              default_threshold=3600,
                              sensor_vector_mapping=None):
         """Acknowledge ON/OFF events and output an array of observations taken
@@ -395,53 +500,96 @@ class CASASDataset:
             default_threshold (:obj:`int`): If we do not find a matching tag
                 after the threshold, we enable automatic sensor shutdown
                 interval.
+            sensor_vector_mapping (:obj:`np.ndarray`): Mapping matrix between
+                sensor id and vector embedding.
+            show_progress (:obj:`bool`): Show observation track generation
+                progress.
+            sensor_check (:obj:`bool`): Whether to check matching sensor
+                messages. For example, whether a 'CLOSE' is followed by 'OPEN'.
         """
+        if show_progress:
+            sys.stdout.write('Generate Observations from event list.\n')
+            num_events = len(self.sensor_list)
+            sys.stdout.write('Total events: %d\n' % num_events)
+            num_event_chunk = num_events / 100
+            num_events_processed = 0
+            percentage_processed = 0
+
         observation_track = []  # to hold observations
-        sensor_status = {}  # dictionary to store current states of all sensors
-        auto_shutdown = {}  # dictionary store shutdown time
-        auto_shutdown_summary = {}
-        for sensor in self.sensor_list:
-            sensor_status[sensor['name']] = 0
-            auto_shutdown[sensor['name']] = None
-            auto_shutdown_summary[sensor['name']] = 0
+        # dictionary to store current states of all sensors
+        sensor_status = {sensor['name']: 0 for sensor in self.sensor_list}
+
+        # TODO: Sensor check needs further testing
+        if sensor_check:
+            auto_shutdown = {}  # dictionary store shutdown time
+            auto_shutdown_summary = {}
+            for sensor in self.sensor_list:
+                sensor_status[sensor['name']] = 0
+                auto_shutdown[sensor['name']] = None
+                auto_shutdown_summary[sensor['name']] = 0
+        # Go through all events
         for i, event in enumerate(self.event_list):
             if event['message'] == "OFF" or event['message'] == 'ABSENT' or \
                     event['message'] == 'CLOSE':
                 sensor_status[event['sensor']] = 0
-                auto_shutdown[event['sensor']] = 0
+                # Record sensor in shutdown list
+                if sensor_check:
+                    auto_shutdown[event['sensor']] = 0
             else:
                 current_observation = []
                 sensor_status[event['sensor']] = 1
+
                 # Check auto-shutdown
-                for j in range(i, len(self.event_list)):
-                    if (self.event_list[j]['datetime'] - event['datetime'])\
-                            .total_seconds() > default_threshold:
-                        auto_shutdown[event['sensor']] = event['datetime']
-                        if auto_shutdown_summary[event['sensor']] == 0:
-                            logger.debug(
-                                "debug_warn: %s at %s does not have a closign"
-                                " tag matched within %d seconds" %
-                                (event['sensor'], event['datetime'],
-                                 default_threshold))
-                        auto_shutdown_summary[event['sensor']] += 1
+                if sensor_check:
+                    for j in range(i, len(self.event_list)):
+                        if (self.event_list[j]['datetime'] - event['datetime'])\
+                                .total_seconds() > default_threshold:
+                            auto_shutdown[event['sensor']] = event['datetime']
+                            if auto_shutdown_summary[event['sensor']] == 0:
+                                logger.debug(
+                                    "debug_warn: %s at %s does not have a "
+                                    "closing tag matched within %d seconds" %
+                                    (event['sensor'], event['datetime'],
+                                     default_threshold))
+                            auto_shutdown_summary[event['sensor']] += 1
+
                 # Check for auto-shutdown
                 for sensor in self.sensor_list:
                     sensor_name = sensor['name']
                     if sensor_status[sensor_name] == 1:
-                        if auto_shutdown[sensor_name] == 1:
-                            # Check time to see if it is down now.
-                            if (event['datetime'] - auto_shutdown[sensor_name]).total_seconds() > default_off_interval:
-                                auto_shutdown[sensor_name] = None
-                                sensor_status[sensor_name] = 0
+                        # Add auto-shutdown if sensor check is enabled
+                        if sensor_check:
+                            if auto_shutdown[sensor_name] == 1:
+                                # Check time to see if it is down now.
+                                if (event['datetime'] -
+                                    auto_shutdown[sensor_name]).\
+                                        total_seconds() > default_off_interval:
+                                    auto_shutdown[sensor_name] = None
+                                    sensor_status[sensor_name] = 0
                         # Append sensor
                         if sensor_status[sensor_name] == 1:
                             if sensor_vector_mapping is not None:
-                                current_observation.append(sensor_vector_mapping[self.sensor_indices_dict[sensor_name], :].T)
+                                current_observation.append(
+                                    sensor_vector_mapping[
+                                        self.sensor_indices_dict[sensor_name], :
+                                    ].T
+                                )
                             else:
                                 current_observation.append(
                                     self.sensor_indices_dict[sensor_name])
                 observation_track.append(current_observation)
+                if show_progress:
+                    num_events_processed += 1
+                    if num_events_processed > num_event_chunk:
+                        percentage_processed += \
+                            int(num_events_processed / num_event_chunk)
+                        num_events_processed = num_events_processed % \
+                                               num_event_chunk
+                        sys.stdout.write('\rprogress: %d %%' %
+                                         percentage_processed)
                 logger.debug("Obs %5d: %s" % (i, str(current_observation)))
+        if show_progress:
+            sys.stdout.write('progress: 100%%\n')
         return observation_track
 
     def summary(self):
