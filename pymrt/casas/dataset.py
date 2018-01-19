@@ -509,7 +509,7 @@ class CASASDataset:
         """
         if show_progress:
             sys.stdout.write('Generate Observations from event list.\n')
-            num_events = len(self.sensor_list)
+            num_events = len(self.event_list)
             sys.stdout.write('Total events: %d\n' % num_events)
             num_event_chunk = num_events / 100
             num_events_processed = 0
