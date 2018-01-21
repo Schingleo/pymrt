@@ -8,7 +8,7 @@ The abnormalities in the dataset is exported to an Microsoft Excel (xlsx) file.
 import os
 import logging
 import argparse
-from pymrt.casas.dataset import CASASDataset
+from pymrt.casas import CASASDataset
 
 result_dir = '../../result/test/casas'
 

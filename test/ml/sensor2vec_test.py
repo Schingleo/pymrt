@@ -5,7 +5,7 @@ import os
 import logging
 import argparse
 import pickle
-from pymrt.casas.dataset import CASASDataset
+from pymrt.casas import CASASDataset
 from pymrt.ml.sensor2vec import *
 from pymrt.utils.visualizer import *
 

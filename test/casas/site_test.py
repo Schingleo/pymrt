@@ -8,7 +8,7 @@ library.
 import logging
 import argparse
 import matplotlib.pyplot as plt
-from pymrar.casas.site import CASASSite
+from pymrt.casas import CASASSite
 
 
 def config_debug():
