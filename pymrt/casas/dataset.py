@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class CASASDataset:
-    """CASAS Dataset Class
+    r"""CASAS Dataset Class
 
     CASAS Dataset Class stores and processes all information regarding a
     recorded smart home dataset.
@@ -22,11 +22,13 @@ class CASASDataset:
     The meta-data about the dataset (dataset.json) is parsed and loaded into
     the ``data_dict`` attribute.
     Usually, it is a dictionary consisted of the following keys:
-    - name: name of the dataset.
-    - activities: list of activities (dictionary structure) tagged in the
-                  dataset.
-    - residents: list of residents (dictionary structure) tagged in the dataset.
-    - site: name of the site where this dataset is recorded.
+
+    * ``name``: name of the dataset.
+    * ``activities``: list of activities (dictionary structure) tagged in the
+      dataset.
+    * ``residents``: list of residents (dictionary structure) tagged in the
+      dataset.
+    * ``site``: name of the site where this dataset is recorded.
 
     ``events.csv`` file within the dataset directory contains binary sensor
     events triggered by motion sensors, area motion sensors, item sensors,
@@ -39,36 +41,42 @@ class CASASDataset:
 
     The ``event.csv`` file is composed of 6 columns separated by comma.
     Here are those columns:
-    - time tag: MM/DD/YYYY HH:mm:ss with time zone information represents
-                unambiguously a specific time spot where the sensor event
-                occurs, e.g. 12/01/2016 00:01:41 -08:00
-    - sensor name: the target name of the sensor that triggers the event.
-    - sensor message: the message that the sensor reports. For motion sensor,
-                      it is either "ON" or "OFF". Door sensor sends "OPEN" or
-                      "CLOSE", while item sensor sends "PRESENT" or "ABSENT".
-    - resident name: The name/alias of the resident that triggers the sensor
-                     event and message.
-    - activity name: The name/label of the activity that the resident who
-                     triggers the sensor event is performing.
-    - comments: Extra comments about this sensor event. Usually it contains
-                the sensor type there.
+
+    * **time tag**: MM/DD/YYYY HH:mm:ss with time zone information represents
+      unambiguously a specific time spot where the sensor event
+      occurs, e.g. 12/01/2016 00:01:41 -08:00
+    * **sensor name**: the target name of the sensor that triggers the event.
+    * **sensor message**: the message that the sensor reports. For motion
+      sensor, it is either "ON" or "OFF". Door sensor sends "OPEN" or
+      "CLOSE", while item sensor sends "PRESENT" or "ABSENT".
+    * **resident names**: The name/alias of the resident that triggers the
+      sensor event and message. If multiple residents are the cause of the
+      sensor event, they are separated by ``;``.
+    * **activity name**: The name/label of the activity that the resident who
+      triggers the sensor event is performing. If the sensor is triggered by
+      multiple residents and they are performing different activities,
+      the activities labels are separated by ``;``.
+    * **comments**: Extra comments about this sensor event. Usually it contains
+      the sensor type there.
 
     The ``event.csv`` file is loaded with :meth:`load_event` function. All the
     loaded events are stored in ``event_list`` attributes. Each entry in the
     list is a dictionary composed of the following key-value pairs:
-    - datetime: a datetime structure representing a specific time spot.
-    - sensor: the target name of the sensor.
-    - message: the message that the sensor sends.
-    - resident: the name/alias of the resident if tagged.
-    - activity: the name/label of the acitivity if tagged.
+
+    * ``datetime``: a datetime structure representing a specific time spot.
+    * ``sensor``: the target name of the sensor.
+    * ``message``: the message that the sensor sends.
+    * ``resident``: the name/alias of the resident if tagged.
+    * ``activity``: the name/label of the acitivity if tagged.
 
     Attributes:
-        data_dict (:obj:`dict`): A dictionary contains information about smart
-            home.
+        data_dict (:obj:`dict`):
+            A dictionary contains information about smart home.
         directory (:obj:`str`): Path to the directory that stores CASAS smart
             home data.
-        site (:obj:`CASASSite`): The :obj:`CASASSite` class representing the
-            smart home site information.
+        site (:obj:`pymrt.casas.site.CASASSite`):
+            The :obj:`CASASSite` class representing the smart home site
+            information.
         activity_dict (:obj:`dict`): A dictionary indexed by the name of
             activity for faster activity lookup. Each activity is a
             :obj:`dict` structure composed of key ``name`` and ``color``.
@@ -88,7 +96,7 @@ class CASASDataset:
             populated after the dataset is loaded.
         sensor_indices_dict (:obj:`dict`): A dictionary indexed by sensor name
             with the index of the corresponding sensor as its value. It is
-            used for fast look-up of sensor index during data preprocessing and
+            used for fast look-up of sensor index during data pre-processing and
             post-processing for activity recognition and multi-resident
             tracking.
         event_list (:obj:`list`): List of loaded events.
@@ -102,7 +110,6 @@ class CASASDataset:
         site (:obj:`CASASSite`): :obj:`CASASSite` structure that corresponds to
             the site.
     """
-
     def __init__(self, directory, site_dir=None, site=None):
         # Sanity checks
         if not os.path.isdir(directory):
@@ -153,6 +160,7 @@ class CASASDataset:
 
     def _get_residents(self):
         """Analyze residents information from loaded meta-data.
+
         Note that self.data_dict needs to be populated from the json file first
         before this method is called.
         """
@@ -612,6 +620,7 @@ class CASASDataset:
         """Check event list for issues
 
         Common issues are:
+
         1. Motion sensor, Missing ON event (two consecutive OFF)
         2. Motion sensor, Missing OFF event (two consecutive ON)
         3. Item sensor, Missing ABSENT (two consecutive PRESENT)
