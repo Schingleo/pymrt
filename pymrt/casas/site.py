@@ -16,33 +16,38 @@ logger = logging.getLogger(__name__)
 class CASASSite:
     """CASAS Site Class
 
-    This class parses the metadata for a smart home site and loaded it into prameter ``data_dict``.
+    This class parses the metadata for a smart home site and loaded it into
+    prameter ``data_dict``.
     Usually, the description of a site is composed of following keys:
-    - name: Site (Testbed) name.
-    - floorplan: Relative path to the floorplan image (usually *.png).
-    - sensors: List of sensors populated in the smarthome.
-    - timezone: Local timezone of the site (IANA string).
+
+    * ``name``: Site (Testbed) name.
+    * ``floorplan``: Relative path to the floorplan image (usually \*.png).
+    * ``sensors``: List of sensors populated in the smarthome.
+    * ``timezone``: Local timezone of the site (IANA string).
 
     Each sensor in the metadata is a dictionary composed of following keys:
-    - name: Target name of the sensor.
-    - types: List of sensor types.
-    - locX: x position relative to the width of floorplan (between 0 and 1)
-    - locY: y position relative to the height of floorplan (between 0 and 1)
-    - sizeX: depricated.
-    - sizeY: depricated.
-    - description: custom description added to the sensor.
-    - tag: tag string of the sensor.
-    - serial: list of serial number for the tag.
 
-    Note that the name and types are the two that matter in multi-resident activity recognition
-    implementation.
+    * ``name``: Target name of the sensor.
+    * ``types``: List of sensor types.
+    * ``locX``: x position relative to the width of floorplan (between 0 and 1)
+    * ``locY``: y position relative to the height of floorplan (between 0 and 1)
+    * ``sizeX``: depricated.
+    * ``sizeY``: depricated.
+    * ``description``: custom description added to the sensor.
+    * ``tag``: tag string of the sensor.
+    * ``serial``: list of serial number for the tag.
+
+    Note that the name and types are the two that matter in multi-resident
+    activity recognition implementation.
 
     Attributes:
-        data_dict (:obj:`dict`): A dictionary contains information about smart home.
+        data_dict (:obj:`dict`): A dictionary contains information about smart
+            home.
         directory (:obj:`str`): Directory that stores CASAS smart home site data
 
     Parameters:
-        directory (:obj:`str`): Directory where the meta-data describing a CASAS smart home site is stored.
+        directory (:obj:`str`): Directory where the meta-data describing a
+            CASAS smart home site is stored.
     """
     def __init__(self, directory):
         if os.path.isdir(directory):
@@ -52,10 +57,12 @@ class CASASSite:
                 f = open(site_json_fname, 'r')
                 self.data_dict = json.load(f)
                 self.sensor_list = self.data_dict['sensors']
-                # Populate sensor_dict (dict type) for faster sensor information lookup.
+                # Populate sensor_dict (dict type) for faster sensor
+                # information lookup.
                 self.sensor_dict = self._populate_sensor_lookup_dict()
             else:
-                logger.error('Smart home metadata file %s does not exist. Create an empty CASASHome Structure'
+                logger.error('Smart home metadata file %s does not exist. '
+                             'Create an empty CASASHome Structure'
                              % site_json_fname)
                 raise FileNotFoundError('File %s not found.' % site_json_fname)
 
@@ -63,8 +70,9 @@ class CASASSite:
         """ Populate a dictionary structure to find each sensor by target name.
 
         Returns:
-            :obj:`dict`: A dictionary indexed by sensor target name (:obj:`str`) with a dictionary structure
-                detailing the information of the sensor (:obj:`dict`).
+            :obj:`dict`: A dictionary indexed by sensor target name (:obj:`str`)
+                with a dictionary structure detailing the information of the
+                sensor (:obj:`dict`).
         """
         sensor_dict = {}
         for sensor in self.sensor_list:
@@ -106,8 +114,9 @@ class CASASSite:
         """ Get All Sensor Types
 
         Returns
-            :obj:`dict`: A dictionary indexed by sensor type (:obj:`str`) with the value of a list of sensor target
-                names that belongs to the index type (:obj:`list` of :obj:`str`).
+            :obj:`dict`: A dictionary indexed by sensor type (:obj:`str`)
+                with the value of a list of sensor target names that belongs
+                to the index type (:obj:`list` of :obj:`str`).
         """
         sensor_types_dict = {}
         for sensor in self.sensor_list:
@@ -124,22 +133,27 @@ class CASASSite:
         sensor_types_dict = self.get_all_sensor_types()
         print('%d types of sensors on site' % len(sensor_types_dict))
         for sensor_type, sensor_list in sensor_types_dict.items():
-            print('    %s:\n        %s' % (sensor_type, ",\n        ".join(sensor_list)))
+            print('    %s:\n        %s' %
+                  (sensor_type, ",\n        ".join(sensor_list)))
 
     def _prepare_floorplan(self):
         """Prepare the floorplan for drawing
 
-        This internal function generates a dictionary of elements to be ploted with matplotlib.
+        This internal function generates a dictionary of elements to be ploted
+        with matplotlib.
         The return is a dictionary composed of following keys:
-        - img: floor plan image loaded in :obj:`mimg` class for plotting
-        - width: actual width of the image
-        - height: actual height of the image
-        - sensor_centers: list of the centers to plot each sensor text.
-        - sensor_boxes: list of rectangles to show the location of sensor (:obj:`patches.Rectangle`).
-        - sensor_texts: list of sensor names
+
+        * ``img``: floor plan image loaded in :obj:`mimg` class for plotting
+        * ``width``: actual width of the image
+        * ``height``: actual height of the image
+        * ``sensor_centers``: list of the centers to plot each sensor text.
+        * ``sensor_boxes``: list of rectangles to show the location of sensor
+          (:obj:`patches.Rectangle`).
+        * ``sensor_texts``: list of sensor names
 
         Returns:
-            :obj:`dict`: A dictionary contains all the pieces needed to draw the floorplan
+            :obj:`dict`: A dictionary contains all the pieces needed to draw
+                the floorplan
         """
         floorplan_dict = {}
         img = mimg.imread(os.path.join(self.directory, self.data_dict['floorplan']))
@@ -155,15 +169,18 @@ class CASASSite:
             loc_y = sensor['locY'] * img_y
             width_x = 0.01*img_x
             width_y = 0.01*img_y
-            sensor_category = CASASSensorType.get_best_category_for_sensor(sensor['types'])
+            sensor_category = \
+                CASASSensorType.get_best_category_for_sensor(sensor['types'])
             sensor_color = CASASSensorType.get_category_color(sensor_category)
             sensor_boxes[sensor['name']] = \
-                patches.Rectangle((loc_x - width_x / 2, loc_y - width_y / 2), width_x, width_y,
+                patches.Rectangle((loc_x - width_x / 2, loc_y - width_y / 2),
+                                  width_x, width_y,
                                   edgecolor='grey',
                                   facecolor=sensor_color,
                                   linewidth=1,
                                   zorder=2)
-            sensor_texts[sensor['name']] = (loc_x, loc_y + width_y + 1, sensor['name'])
+            sensor_texts[sensor['name']] = (loc_x, loc_y + width_y + 1,
+                                            sensor['name'])
             sensor_centers[sensor['name']] = (loc_x, loc_y)
         # Populate dictionary
         floorplan_dict['img'] = img
