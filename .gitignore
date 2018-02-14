@@ -1,3 +1,11 @@
 data/
 .idea/
+
+# Ignore results folder for tests
 result/
+
+# Ignore experiments folder
+experiments/
+
+# Ignore build directory in docs
+docs/build/
