@@ -1,5 +1,6 @@
 data/
 .idea/
+*.egg-info/
 
 # Ignore results folder for tests
 result/
