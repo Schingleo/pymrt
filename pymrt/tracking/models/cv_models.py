@@ -1,0 +1,379 @@
+""" This file defines a base class for constant velocity dynamic model.
+"""
+import numpy as np
+from ..utils import NormalGenerator
+
+
+class CVModel(object):
+    """Constant Velocity Model
+
+    Assume that the target of interest is moving at a constant velocity in a
+    n-dimensional space. The location in the n-dimensional space is observable.
+    Thus the dimensionality of the measurement space is :math:`n` and the
+    dimensionality of the state space is :math:`2n`.
+
+    Arguments:
+        n (:obj:`int`): Dimensionality of space the target is moving in.
+
+    Attributes:
+        n (:obj:`int`): Dimensionality of the space the target is moving in.
+            It is the same as observation space in constant velocity model.
+        x_dim (:obj:`int`): Dimensionality of state space.
+        _t (:obj:`int`): Time intervals for each sample.
+        _F (:obj:`numpy.ndarray`): Dynamic model linear motion multiplier.
+        _G (:obj:`numpy.ndarray`): Dynamic model linea error multiplier.
+        w_generator (:obj:`~pymrt.tracking.models.utils.RandomGenerator`):
+            Random generator for state update error estimation.
+        r_generator (:obj:`~pymrt.tracking.models.utils.RandomGenerator`):
+            Random generator for measurement error estimation.
+    """
+    def __init__(self, n):
+        print('init CVModel')
+        self.n = n
+        self.x_dim = 2 * n
+        # Set time intervals and update parameters
+        self._t = 1
+        # Parameters for linear dynamic model
+        # Linear Motion Multiplier F
+        self._F = CVModel._generate_F(self.n, self._t)
+        # Error Multiplier (used for noise in synthetic data generation)
+        self._G = CVModel._generate_G(self.n, self._t)
+        # Assume that all dimensions are independent from each other,
+        # and have the same error distribution
+        self._sigma_w = 1.
+        # Q is the covariance of error term in dynamic model
+        self._Q = CVModel._generate_Q(self._sigma_w, self._G)
+
+        # Parameters for linear measurement model
+        # Measurement Generation Multiplier H
+        self._H = CVModel._generate_H(self.n, self._t)
+        # Assume that all dimensions are independent from each other,
+        # and have the same error distribution
+        self._sigma_r = 1.
+        # R is the covariance of the error term in measurement model
+        self._R = CVModel._generate_R(self.n, self._sigma_r)
+
+        # Random generator for State error
+        self.w_generator = NormalGenerator(
+            mean=np.zeros((n, 1)),
+            cov=self._sigma_w * self._sigma_w * np.eye(n),
+            n=n
+        )
+        # Random generator for measurement error
+        self.r_generator = NormalGenerator(
+            mean=np.zeros((n, 1)),
+            cov=self._R,
+            n=n
+        )
+
+    @property
+    def t(self):
+        return self._t
+
+    @t.setter
+    def t(self, value):
+        self._t = value
+        self._F = CVModel._generate_F(self.n, value)
+        self._G = CVModel._generate_G(self.n, value)
+
+    @property
+    def sigma_w(self):
+        return self._sigma_w
+
+    @sigma_w.setter
+    def sigma_w(self, value):
+        self._sigma_w = value
+        self._Q = CVModel._generate_Q(value, self._G)
+        self.w_generator = NormalGenerator(
+            mean=np.zeros((self.n, 1)),
+            cov=self._sigma_w * self._sigma_w * np.eye(self.n),
+            n=self.n
+        )
+
+    @property
+    def sigma_r(self):
+        return self._sigma_r
+
+    @sigma_r.setter
+    def sigma_r(self, value):
+        self._sigma_r = value
+        self._R = CVModel._generate_R(self.n, value)
+        self.r_generator = NormalGenerator(
+            mean=np.zeros((self.n, 1)),
+            cov=self._R,
+            n=self.n
+        )
+
+    @staticmethod
+    def _generate_F(n, t):
+        return np.block([
+            [np.eye(n), np.eye(n) * t],
+            [np.zeros(shape=(n, n)), np.eye(n)]
+        ])
+
+    @staticmethod
+    def _generate_G(n, t):
+        return np.block([
+            [0.5 * t * t * np.eye(n)],
+            [t * np.eye(n)]
+        ])
+
+    @staticmethod
+    def _generate_H(n, t):
+        return np.block([
+            np.eye(n), np.zeros(shape=(n, n))
+        ])
+
+    @staticmethod
+    def _generate_Q(sigma_w, G):
+        return sigma_w * sigma_w * np.dot(G, G.T)
+
+    @staticmethod
+    def _generate_R(n, sigma_r):
+        return sigma_r * sigma_r * np.eye(n)
+
+    def generate_new_state(self, x_prime, noise=True, noise_array=None):
+        """ Generate new state based on previous state vector $x'$.
+
+        Args:
+            x_prime (:obj:`numpy.ndarray`): State vector of size
+                (``self.x_dim``, ).
+            noise (:obj:`bool`): Whether the generated state includes
+                disturbance.
+            noise_array (:obj:`numpy.ndarray`): First order disturbance to the
+                target state. It needs to be a column vector of size :math:`n`.
+                If it is set to None, the disturbance is generated by
+                :attr:`~pymrt.tracking.models.CVModel.w_generator`.
+
+        Returns:
+            x (:obj:`numpy.ndarray`): Next state vector of size
+                (``self.x_dim``, ).
+        """
+        # Force x_prime as a column vector
+        x_prime = np.reshape(x_prime, (self.x_dim, 1))
+        if noise:
+            if noise_array is not None:
+                # Force noise to be a column vector
+                noise_array = np.reshape(np.array(noise), (self.n, 1))
+                return np.dot(self._F, x_prime) + \
+                    np.dot(self._G, noise_array)
+            else:
+                return np.dot(self._F, x_prime) + \
+                    np.dot(self._G, self.w_generator.generate())
+        else:
+            return np.dot(self._F, x_prime)
+
+    def generate_observation(self, x_prime, noise=True, noise_array=None):
+        """Generate Observation based on current state vector.
+
+        Args:
+            x_prime (:obj:`numpy.ndarray`): State vector of size
+                (``self.x_dim``, ).
+            noise (:obj:`bool`): Whether the generated state includes
+                disturbance.
+            noise_array (:obj:`numpy.ndarray`): First order disturbance to the
+                target state. It needs to be a column vector of size :math:`n`.
+                If it is set to None, the disturbance is generated by
+                :attr:`~pymrt.tracking.models.CVModel.d_generator`.
+
+        Returns:
+            z (:obj:`numpy.ndarray`): Measurement vector of size
+                (``self.z_dim``, ).
+        """
+        # Force x_prime as a column vector
+        x_prime = np.reshape(x_prime, (self.x_dim, 1))
+        if noise:
+            if noise_array is not None:
+                # Force noise to be a column vector
+                noise_array = np.reshape(np.array(noise), (self.n, 1))
+                return np.dot(self._H, x_prime) + noise_array
+            else:
+                return np.dot(self._H, x_prime) + self.r_generator.generate()
+        return np.dot(self._H, x_prime)
+
+
+class CVIDModel(object):
+    """Constant Velocity Model with Track ID
+
+    Assume that the target of interest is moving at a constant velocity in a
+    n-dimensional space. The location in the n-dimensional space is observable.
+    However, in order to associate observation with a specific target,
+    a track_id field needs to be added to the state vector.
+    Thus the dimensionality of the measurement space is :math:`n` and the
+    dimensionality of the state space is :math:`2n+1`
+
+    Arguments:
+        n (:obj:`int`): Dimensionality of space the target is moving in.
+
+    Attributes:
+        n (:obj:`int`): Dimensionality of the space the target is moving in.
+            It is the same as observation space in constant velocity model.
+        x_dim (:obj:`int`): Dimensionality of state space.
+        _t (:obj:`int`): Time intervals for each sample.
+        _F (:obj:`numpy.ndarray`): Dynamic model linear motion multiplier.
+        _G (:obj:`numpy.ndarray`): Dynamic model linea error multiplier.
+    """
+    def __init__(self, n):
+        self.n = n
+        self.x_dim = 2 * n + 1
+        # Set time intervals and update parameters
+        self._t = 1
+        # Parameters for linear dynamic model
+        # Linear Motion Multiplier F
+        self._F = CVIDModel._generate_F(self.n, self._t)
+        # Error Multiplier (used for noise in synthetic data generation)
+        self._G = CVIDModel._generate_G(self.n, self._t)
+        # Assume that all dimensions are independent from each other,
+        # and have the same error distribution
+        self._sigma_w = 1.
+        # Q is the covariance of error term in dynamic model
+        self._Q = CVIDModel._generate_Q(self._sigma_w, self._G)
+
+        # Parameters for linear measurement model
+        # Measurement Generation Multiplier H
+        self._H = CVIDModel._generate_H(self.n, self._t)
+        # Assume that all dimensions are independent from each other,
+        # and have the same error distribution
+        self._sigma_r = 1.
+        # R is the covariance of the error term in measurement model
+        self._R = CVIDModel._generate_R(self.n, self._sigma_r)
+
+        # Random generator for State error
+        self.w_generator = NormalGenerator(
+            mean=np.zeros((n, 1)),
+            cov=self._sigma_w * self._sigma_w * np.eye(n),
+            n=n
+        )
+        # Random generator for measurement error
+        self.r_generator = NormalGenerator(
+            mean=np.zeros((n, 1)),
+            cov=self._R,
+            n=n
+        )
+
+    @property
+    def t(self):
+        return self._t
+
+    @t.setter
+    def t(self, value):
+        self._t = value
+        self._F = CVIDModel._generate_F(self.n, value)
+        self._G = CVIDModel._generate_G(self.n, value)
+
+    @property
+    def sigma_w(self):
+        return self._sigma_w
+
+    @sigma_w.setter
+    def sigma_w(self, value):
+        self._sigma_w = value
+        self._Q = CVIDModel._generate_Q(value, self._G)
+        self.w_generator = NormalGenerator(
+            mean=np.zeros((self.n, 1)),
+            cov=self._sigma_w * self._sigma_w * np.eye(self.n),
+            n=self.n
+        )
+
+    @property
+    def sigma_r(self):
+        return self._sigma_r
+
+    @sigma_r.setter
+    def sigma_r(self, value):
+        self._sigma_r = value
+        self._R = CVIDModel._generate_R(self.n, value)
+        self.r_generator = NormalGenerator(
+            mean=np.zeros((self.n, 1)),
+            cov=self._R,
+            n=self.n
+        )
+
+    @staticmethod
+    def _generate_F(n, t):
+        return np.block([
+            [np.eye(n), np.eye(n) * t, np.zeros((n, 1))],
+            [np.zeros(shape=(n, n)), np.eye(n), np.zeros((n, 1))],
+            [np.zeros((1, 2 * n)), 1]
+        ])
+
+    @staticmethod
+    def _generate_G(n, t):
+        return np.block([
+            [0.5 * t * t * np.eye(n)],
+            [t * np.eye(n)],
+            [np.zeros((1, n))]
+        ])
+
+    @staticmethod
+    def _generate_H(n, t):
+        return np.block([
+            np.eye(n), np.zeros(shape=(n, n+1))
+        ])
+
+    @staticmethod
+    def _generate_Q(sigma_w, G):
+        return sigma_w * sigma_w * np.dot(G, G.T)
+
+    @staticmethod
+    def _generate_R(n, sigma_r):
+        return sigma_r * sigma_r * np.eye(n)
+
+    def generate_new_state(self, x_prime, noise=True, noise_array=None):
+        """ Generate new state based on previous state vector $x'$.
+
+        Args:
+            x_prime (:obj:`numpy.ndarray`): State vector of size
+                (``self.x_dim``, ).
+            noise (:obj:`bool`): Whether the generated state includes
+                disturbance.
+            noise_array (:obj:`numpy.ndarray`): First order disturbance to the
+                target state. It needs to be a column vector of size :math:`n`.
+                If it is set to None, the disturbance is generated by
+                :attr:`~pymrt.tracking.models.CVModel.w_generator`.
+
+        Returns:
+            x (:obj:`numpy.ndarray`): Next state vector of size
+                (``self.x_dim``, ).
+        """
+        # Force x_prime as a column vector
+        x_prime = np.reshape(x_prime, (self.x_dim, 1))
+        if noise:
+            if noise_array is not None:
+                # Force noise to be a column vector
+                noise_array = np.reshape(np.array(noise), (self.n, 1))
+                return np.dot(self._F, x_prime) + \
+                    np.dot(self._G, noise_array)
+            else:
+                return np.dot(self._F, x_prime) + \
+                    np.dot(self._G, self.w_generator.generate())
+        else:
+            return np.dot(self._F, x_prime)
+
+    def generate_observation(self, x_prime, noise=True, noise_array=None):
+        """Generate Observation based on current state vector.
+
+        Args:
+            x_prime (:obj:`numpy.ndarray`): State vector of size
+                (``self.x_dim``, ).
+            noise (:obj:`bool`): Whether the generated state includes
+                disturbance.
+            noise_array (:obj:`numpy.ndarray`): First order disturbance to the
+                target state. It needs to be a column vector of size :math:`n`.
+                If it is set to None, the disturbance is generated by
+                :attr:`~pymrt.tracking.models.CVModel.r_generator`.
+
+        Returns:
+            z (:obj:`numpy.ndarray`): Measurement vector of size
+                (``self.z_dim``, ).
+        """
+        # Force x_prime as a column vector
+        x_prime = np.reshape(x_prime, (self.x_dim, 1))
+        if noise:
+            if noise_array is not None:
+                # Force noise to be a column vector
+                noise_array = np.reshape(np.array(noise), (self.n, 1))
+                return np.dot(self._H, x_prime) + noise_array
+            else:
+                return np.dot(self._H, x_prime) + self.r_generator.generate()
+        return np.dot(self._H, x_prime)
