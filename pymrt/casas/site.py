@@ -136,7 +136,7 @@ class CASASSite:
             print('    %s:\n        %s' %
                   (sensor_type, ",\n        ".join(sensor_list)))
 
-    def _prepare_floorplan(self):
+    def prepare_floorplan(self):
         """Prepare the floorplan for drawing
 
         This internal function generates a dictionary of elements to be ploted
@@ -197,7 +197,7 @@ class CASASSite:
         Args:
             filename (:obj:`str`): Name of the file to save the floorplan to
         """
-        floorplan_dict = self._prepare_floorplan()
+        floorplan_dict = self.prepare_floorplan()
         self._plot_floorplan(floorplan_dict, filename)
 
     @staticmethod
@@ -228,7 +228,7 @@ class CASASSite:
         """
         sensor_index = self.get_all_sensors().index(sensor_name)
         num_sensors = len(self.data_dict['sensors'])
-        floorplan_dict = self._prepare_floorplan()
+        floorplan_dict = self.prepare_floorplan()
         x1 = floorplan_dict['sensor_centers'][sensor_name][0]
         y1 = floorplan_dict['sensor_centers'][sensor_name][1]
         # Draw Lines, and Set alpha for each sensor box
