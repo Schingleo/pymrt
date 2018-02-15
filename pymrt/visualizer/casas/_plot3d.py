@@ -1,7 +1,7 @@
 from mayavi import mlab
 
 
-def plot3d_embeddings(dataset, embeddings):
+def plot3d_embeddings(dataset, embeddings, figure=None):
     """Plot sensor embedding in 3D space using mayavi.
 
     Given the dataset and a sensor embedding matrix, each sensor is shown as
@@ -13,10 +13,14 @@ def plot3d_embeddings(dataset, embeddings):
         dataset (:obj:`~pymrt.casas.CASASDataset`): CASAS smart home dataset.
         embeddings (:obj:`numpy.ndarray`): 3D sensor vector embedding.
     """
-    figure = mlab.figure('Sensor Embedding (3D)')
+    show_figure = False
+    if figure is None:
+        show_figure = True
+        figure = mlab.figure('Sensor Embedding (3D)')
+    # Plot sensors, texts and outlines
     figure.scene.disable_render = True
     points = mlab.points3d(embeddings[:, 0], embeddings[:, 1], embeddings[:, 2],
-                           scale_factor=0.15)
+                           scale_factor=0.015)
     for i, x in enumerate(embeddings):
         mlab.text3d(x[0], x[1], x[2], dataset.sensor_list[i]['name'],
                     scale=(0.01, 0.01, 0.01))
@@ -26,4 +30,6 @@ def plot3d_embeddings(dataset, embeddings):
     ax.label_text_property.font_size = 3
     ax.axes.font_factor = 0.3
     figure.scene.disable_render = False
-    mlab.show()
+    if show_figure:
+        mlab.show()
+    return figure, points

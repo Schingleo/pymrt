@@ -4,6 +4,7 @@ from mayavi import mlab
 from mayavi.scripts import mayavi2
 from traits.api import HasTraits, Button, Instance
 from traitsui.api import View, Item
+from ._plot3d import plot3d_embeddings
 
 
 def plot3d_gmphd(dataset, embeddings, grid, gm_s=None, gm_list=None,
@@ -48,7 +49,6 @@ def plot3d_gmphd(dataset, embeddings, grid, gm_s=None, gm_list=None,
 
     print('Start Plotting with Mayavi')
     figure = mlab.figure(dataset.get_name() + ' ' + title)
-    figure.scene.disable_render = True
     if log_plot:
         contour_s = np.log(gm_s + np.finfo(np.float).tiny)
     else:
@@ -66,8 +66,7 @@ def plot3d_gmphd(dataset, embeddings, grid, gm_s=None, gm_list=None,
 
     mlab.colorbar(contour, title='PHD', orientation='vertical')
 
-    points = mlab.points3d(embeddings[:, 0], embeddings[:, 1], embeddings[:, 2],
-                           scale_factor=0.03)
+    _, points = plot3d_embeddings(dataset, embeddings, figure=figure)
 
     if observation is not None:
         obs_array = np.block(observation).T
@@ -76,15 +75,6 @@ def plot3d_gmphd(dataset, embeddings, grid, gm_s=None, gm_list=None,
             scale_factor=0.03, color=(0, 0, 1)
         )
 
-    for i, x in enumerate(embeddings):
-        mlab.text3d(x[0], x[1], x[2], dataset.sensor_list[i]['name'],
-                    scale=(0.02, 0.02, 0.02))
-    mlab.outline(None, color=(.7, .7, .7), extent=[-1, 1, -1, 1, -1, 1])
-    ax = mlab.axes(None, color=(.7, .7, .7), extent=[-1, 1, -1, 1, -1, 1],
-                   ranges=[-1, 1, -1, 1, -1, 1], nb_labels=6)
-    ax.label_text_property.font_size = 3
-    ax.axes.font_factor = 0.4
-    figure.scene.disable_render = False
     mlab.show()
 
 
@@ -207,10 +197,7 @@ def plot3d_gmphd_track(dataset, embeddings, grid, gm_s_list=None,
 
         mlab.colorbar(contour, title='PHD', orientation='vertical')
 
-        points = mlab.points3d(
-            embeddings[:, 0], embeddings[:, 1], embeddings[:, 2],
-            scale_factor=0.03
-        )
+        _, points = plot3d_embeddings(dataset, embeddings, figure=figure)
 
         points.glyph.scale_mode = 'scale_by_vector'
         points.mlab_source.dataset.point_data.vectors = np.tile(
@@ -228,14 +215,6 @@ def plot3d_gmphd_track(dataset, embeddings, grid, gm_s_list=None,
             ]
             color_vector[obs_index] = 1.
 
-        for i, x in enumerate(embeddings):
-            mlab.text3d(x[0], x[1], x[2], dataset.sensor_list[i]['name'],
-                        scale=(0.02, 0.02, 0.02))
-        mlab.outline(None, color=(.7, .7, .7), extent=[0, 1, 0, 1, 0, 1])
-        ax = mlab.axes(None, color=(.7, .7, .7), extent=[0, 1, 0, 1, 0, 1],
-                       ranges=[0, 1, 0, 1, 0, 1], nb_labels=6)
-        ax.label_text_property.font_size = 3
-        ax.axes.font_factor = 0.4
         computation = Controller(
             sensor_points=points,
             phd_contour=contour,
