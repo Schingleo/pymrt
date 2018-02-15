@@ -7,3 +7,4 @@ matplotlib
 tensorflow
 sphinxcontrib-katex
 sphinxcontrib-napoleon
+sphinxcontrib-proof
