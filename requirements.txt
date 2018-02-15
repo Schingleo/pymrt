@@ -6,3 +6,4 @@ xlsxwriter
 matplotlib
 tensorflow
 sphinxcontrib-katex
+sphinxcontrib-napoleon
