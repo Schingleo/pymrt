@@ -6,37 +6,9 @@ from traits.api import HasTraits, Button, Instance
 from traitsui.api import View, Item
 
 
-def plot3d_sensor_vector(dataset, embeddings):
-    """Plot sensor embedding in 3D space using mayavi.
-
-    Given the dataset and a sensor embedding matrix, each sensor is shown as
-    a sphere in the 3D space. Note that the shape of embedding matrix is
-    (num_sensors, 3) where num_sensors corresponds to the length of
-    ``dataset.sensor_list``.
-
-    Args:
-        dataset (:obj:`~pymrt.casas.CASASDataset`): CASAS smart home dataset.
-        embeddings (:obj:`numpy.ndarray`): 3D sensor vector embedding.
-    """
-    figure = mlab.figure('Sensor Embedding (3D)')
-    figure.scene.disable_render = True
-    points = mlab.points3d(embeddings[:, 0], embeddings[:, 1], embeddings[:, 2],
-                           scale_factor=0.03)
-    for i, x in enumerate(embeddings):
-        mlab.text3d(x[0], x[1], x[2], dataset.sensor_list[i]['name'],
-                    scale=(0.02, 0.02, 0.02))
-    mlab.outline(None, color=(.7, .7, .7), extent=[-1, 1, -1, 1, -1, 1])
-    ax = mlab.axes(None, color=(.7, .7, .7), extent=[-1, 1, -1, 1, -1, 1],
-                   ranges=[-1, 1, -1, 1, -1, 1], nb_labels=6)
-    ax.label_text_property.font_size = 3
-    ax.axes.font_factor = 0.4
-    figure.scene.disable_render = False
-    mlab.show()
-
-
-def plot3d_sensor_with_gm(dataset, embeddings, grid, gm_s=None, gm_list=None,
-                          observation=None, title=None, contours=4,
-                          log_plot=True):
+def plot3d_gmphd(dataset, embeddings, grid, gm_s=None, gm_list=None,
+                 observation=None, title=None, contours=4,
+                 log_plot=True):
     """3D plot of CASAS sensor embedding with GM-PHD sampled by grid.
 
     Multi-target PHD represented either by scalar ``gm_s`` or Gaussian Mixture
@@ -69,7 +41,7 @@ def plot3d_sensor_with_gm(dataset, embeddings, grid, gm_s=None, gm_list=None,
                              "Gaussian Mixture list")
         else:
             print('Sampling PHD in 3D space')
-            from ..tracking.utils import gm_calculate
+            from ...tracking.utils import gm_calculate
             gm_s = gm_calculate(gm_list=gm_list, grid=grid)
     if title is None:
         title = 'PHD'
@@ -116,9 +88,9 @@ def plot3d_sensor_with_gm(dataset, embeddings, grid, gm_s=None, gm_list=None,
     mlab.show()
 
 
-def animate_sensor_with_gm(dataset, embeddings, grid, gm_s_list=None,
-                           gm_list_list=None, observation_list=None,
-                           title=None, contours=4, log_plot=True):
+def plot3d_gmphd_track(dataset, embeddings, grid, gm_s_list=None,
+                       gm_list_list=None, observation_list=None,
+                       title=None, contours=4, log_plot=True):
     """ 3D plot of CASAS sensor embedding with GM-PHD sampled by grid.
 
     Multi-target PHD represented either by scalar ``gm_s`` or Gaussian Mixture
@@ -149,7 +121,7 @@ def animate_sensor_with_gm(dataset, embeddings, grid, gm_s_list=None,
                              "Gaussian Mixture list")
         else:
             print('Sampling PHD in 3D space')
-            from ..tracking.utils import gm_calculate
+            from ...tracking.utils import gm_calculate
             gm_s_list = []
             i = 0
             for gm_list in gm_list_list:
