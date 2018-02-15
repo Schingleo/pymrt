@@ -1,7 +1,6 @@
 pytz
 numpy
 scipy
-mayavi
 psycopg2
 xlsxwriter
 matplotlib
