@@ -2,6 +2,78 @@ import math
 import numpy as np
 import tensorflow as tf
 from .injectors import SkipGramInjector
+from .injectors import TemporalSkipGramInjector
+from .nn_impl import sensor_embed_cv_loss
+
+
+def sensor2vec_cv(num_sensors,
+                  sensor_sequence,
+                  time_list,
+                  velocity=1.,
+                  embedding_size=3,
+                  batch_size=128,
+                  num_skips=9,
+                  skip_window=5,
+                  learning_rate=1.0,
+                  num_steps=100001):
+    """Sensor to Vector embedding using constant velocity model
+    """
+    injector = TemporalSkipGramInjector(
+        sensor_sequence, time_list, batch_size, num_skips,
+        skip_window)
+    # Build Training Model
+    graph = tf.Graph()
+    with graph.as_default():
+        # Input Place Holder
+        train_inputs = tf.placeholder(tf.int64, shape=[batch_size, 1])
+        train_labels = tf.placeholder(tf.int64, shape=[batch_size, 1])
+        train_time_spans = tf.placeholder(tf.float32, shape=[batch_size, 1])
+        # Prepare embedding variable
+        embeddings = tf.Variable(
+            tf.random_uniform([num_sensors, embedding_size], -1.0, 1.0)
+        )
+        loss = tf.reduce_mean(
+            sensor_embed_cv_loss(embeddings=embeddings,
+                                 inputs=train_inputs,
+                                 labels=train_labels,
+                                 time_spans=train_time_spans,
+                                 velocity=velocity
+                                 )
+        )
+        # Construct optimizer
+        optimizer = tf.train.GradientDescentOptimizer(
+            learning_rate=learning_rate
+        ).minimize(loss=loss)
+
+    # Begin training
+    with tf.Session(graph=graph) as sess:
+        # Initialize variables to be trained
+        sess.run(embeddings.initializer)
+        # Start training
+        average_loss = 0.
+        for step in range(num_steps):
+            batch_inputs, batch_labels, batch_time_spans = injector.next_batch()
+            feed_dict = {
+                train_inputs: batch_inputs,
+                train_labels: batch_labels,
+                train_time_spans: batch_time_spans
+            }
+
+            _, loss_val = sess.run([optimizer, loss],
+                                   feed_dict=feed_dict)
+
+            average_loss += loss_val
+
+            if step % 1000 == 1:
+                if step > 0:
+                    average_loss /= 1000
+                # The average loss is an estimate of the loss over the
+                # last 2000 batches.
+                print("Average loss at step ", step, ": ", average_loss)
+                average_loss = 0
+
+        final_embeddings = embeddings.eval(session=sess)
+    return final_embeddings
 
 
 def sensor2vec(num_sensors, sensor_sequence, embedding_size=20,
