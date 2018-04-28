@@ -181,6 +181,93 @@ class BatchSequenceInjector:
         return return_tuple
 
 
+class TemporalSkipGramInjector:
+    """Temporal k-Skip-2-Gram Generator
+
+    It generates bi-grams sets with temporal information based on the input
+    data sequence.
+    Given a sequence :math:`((t_1, w_1), \dots, (t_l, w_l))`, where :math:`w_i`
+    is the sensor label and :math:`t_i` is the time tag associated with the
+    sensor event, a k-skip-bi-gram model produces a set
+
+    .. math::
+        {(w_i, w_{i+j}, t_{i+j} - t_i) | 0 < j \leq k}
+
+    For a more general description on the k-skip-n-gram model, refer to [A
+    closer look at skip-gram modeling](
+    http://www.cs.brandeis.edu/~marc/misc/proceedings/lrec-2006/pdf/357_pdf.pdf)
+
+    Args:
+        data_x (:obj:`list`): 1D array of sensor index.
+        time_x (:obj:`list`): 1D array of sensor index.
+        batch_size (:obj:`int`): Size of each batch to be generated.
+        num_skips (:obj:`int`): How many times to re-use an input to generate a
+            label.
+        skip_window (:obj:`int`): How many items to consider left or right (k).
+    """
+    def __init__(self, data_x, time_x, batch_size, num_skips, skip_window):
+        assert batch_size % num_skips == 0
+        assert num_skips <= 2 * skip_window
+        self.data_x = data_x
+        self.time_x = time_x
+        self.batch_size = batch_size
+        self.num_skips = num_skips
+        self.skip_window = skip_window
+        self.data_index = 0
+
+    def prepare_window(self, span):
+        # Only add the nearest sensor event of the window into the buffer and
+        # ignore others.
+        sensors_in_window = set()
+        # Add data in the window to a queue
+        buffer_inputs = []
+        buffer_time = []
+        i = self.data_index
+        for _ in range(span):
+            cur_sensor = self.data_x[i]
+            if cur_sensor not in sensors_in_window:
+                buffer_inputs.append(cur_sensor)
+                buffer_time.append(self.time_x[i])
+                sensors_in_window.add(cur_sensor)
+            i += 1
+            if i >= len(self.data_x):
+                break
+        self.data_index = (self.data_index + 1) % len(self.data_x)
+        return buffer_inputs, buffer_time
+
+    def next_batch(self):
+        # Initialize batch_inputs, batch_time_spans and batch labels array
+        batch_inputs = np.zeros(shape=(self.batch_size, 1), dtype=np.int64)
+        batch_labels = np.zeros(shape=(self.batch_size, 1), dtype=np.int64)
+        batch_time_spans = np.zeros(shape=(self.batch_size, 1),
+                                    dtype=np.float32)
+        # span is the size of window we are sampling from.
+        # the window: [target, #skip_window events]
+        span = self.skip_window + 1
+        # Now, populate the k-skip-bi-gram data-label pair with random sampling
+        i = 0
+        while i < self.batch_size:
+            # target label at the center of the buffer
+            target = 0
+            targets_to_avoid = [0]
+            # Create buffer inputs
+            buffer_inputs, buffer_time = self.prepare_window(span)
+            buf_len = len(buffer_inputs)
+            for j in range(min(self.num_skips, buf_len - 1)):
+                while target in targets_to_avoid:
+                    target = random.randint(1, buf_len - 1)
+                targets_to_avoid.append(target)
+                batch_inputs[i] = buffer_inputs[0]
+                batch_labels[i] = buffer_inputs[target]
+                batch_time_spans[i] = (
+                        buffer_time[target] - buffer_time[0]
+                ).total_seconds()
+                i += 1
+                if i == self.batch_size:
+                    break
+        return batch_inputs, batch_labels, batch_time_spans
+
+
 class SkipGramInjector:
     """Skip-Gram Batch Injector
 
