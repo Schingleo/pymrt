@@ -136,7 +136,7 @@ class CASASSite:
             print('    %s:\n        %s' %
                   (sensor_type, ",\n        ".join(sensor_list)))
 
-    def prepare_floorplan(self):
+    def prepare_floorplan(self, categories=None):
         """Prepare the floorplan for drawing
 
         This internal function generates a dictionary of elements to be ploted
@@ -156,7 +156,9 @@ class CASASSite:
                 the floorplan
         """
         floorplan_dict = {}
-        img = mimg.imread(os.path.join(self.directory, self.data_dict['floorplan']))
+        img = mimg.imread(os.path.join(
+            self.directory.replace('\\', '/'), self.data_dict['floorplan'])
+        )
         img_x = img.shape[1]
         img_y = img.shape[0]
         # Create Sensor List/Patches
@@ -171,6 +173,8 @@ class CASASSite:
             width_y = 0.01*img_y
             sensor_category = \
                 CASASSensorType.get_best_category_for_sensor(sensor['types'])
+            if categories is not None and sensor_category not in categories:
+                continue
             sensor_color = CASASSensorType.get_category_color(sensor_category)
             sensor_boxes[sensor['name']] = \
                 patches.Rectangle((loc_x - width_x / 2, loc_y - width_y / 2),
@@ -191,13 +195,13 @@ class CASASSite:
         floorplan_dict['sensor_texts'] = sensor_texts
         return floorplan_dict
 
-    def draw_floorplan(self, filename=None):
+    def draw_floorplan(self, filename=None, categories=None):
         """Draw the floorplan of the house, save it to file or display it on screen
 
         Args:
             filename (:obj:`str`): Name of the file to save the floorplan to
         """
-        floorplan_dict = self.prepare_floorplan()
+        floorplan_dict = self.prepare_floorplan(categories=categories)
         self._plot_floorplan(floorplan_dict, filename)
 
     @staticmethod
