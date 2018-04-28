@@ -1,3 +1,4 @@
+humanize
 pytz
 numpy
 scipy
