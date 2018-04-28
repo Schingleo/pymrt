@@ -435,7 +435,7 @@ class CASASDataset:
                     activities = activities.split(';')
                     # Check if all residents are valid
                     for i in range(len(activities) - 1, -1, -1):
-                        if activities[i] not in self.resident_dict:
+                        if activities[i] not in self.activity_dict:
                             activity = activities.pop(i)
                             if activity not in activities_notfound_list:
                                 activities_notfound_list[activity] = 0
@@ -445,10 +445,10 @@ class CASASDataset:
                             else:
                                 activities_notfound_list[activity] += 1
                         else:
-                            if activity in logged_activities:
-                                logged_activities[activity] += 1
+                            if activities[i] in logged_activities:
+                                logged_activities[activities[i]] += 1
                             else:
-                                logged_activities[activity] = 0
+                                logged_activities[activities[i]] = 0
                 else:
                     activities = []
             else:
@@ -481,9 +481,22 @@ class CASASDataset:
         self._get_sensor_indices()
 
     def to_sensor_sequence(self, ignore_off=True):
-        """Change the loaded events into sensor sequence (timetag ignored).
+        """Return a sensor sequence based on event list.
+
+        The function ignores the `OFF`, `ABSENT` or `CLOSE` sensor event and
+        returns a `list` of sensor IDs and time tag associated with each event.
+
+        Args:
+            ignore_off (:obj:`bool`): Ignore `OFF`, `ABSENT` or `CLOSE` event.
+
+        Returns:
+            sensor_seq, time_seq: `list` objects, where the `sensor_seq` is a
+                `list` of sensor sequence, and `time_seq` is a list of
+                `datetime` object representing the time tag of corresponding
+                sensor events.
         """
         sensor_seq = []
+        time_seq = []
         for event in self.event_list:
             if ignore_off and \
                     (event['message'] == "OFF" or
@@ -492,28 +505,31 @@ class CASASDataset:
                 continue
             else:
                 sensor_seq.append(self.sensor_indices_dict[event['sensor']])
-        return sensor_seq
+                time_seq.append(event['datetime'])
+        return sensor_seq, time_seq
 
-    def to_observation_track(self, show_progress=True,
-                             sensor_check=False,
-                             default_off_interval=5,
-                             default_threshold=3600,
-                             sensor_vector_mapping=None):
-        """Acknowledge ON/OFF events and output an array of observations taken
-           at current timestep
+    def to_observation_track(self, show_progress=True):
+        """Generate observation list based on the sensor events loaded.
+
+        Turn a list of sensor events into a list of observation every time a
+        sensor is triggered or in active state. Each observation is represented
+        as a `dict`, with each measurement (in this case, sensor ID) as its
+        `key` and its value is the information of the measurement.
+
+        The information of each measurement is represented as a `dict` as well,
+        with the following key-value pairs:
+        - `start`: Start `datetime`
+        - `stop`: Stop `datetime`
+        - `residents`: List of residents associated with the sensor events.
 
         Args:
-            default_off_interval (:obj:`int`): Default turn-off interval if
-                "OFF" event is missing.
-            default_threshold (:obj:`int`): If we do not find a matching tag
-                after the threshold, we enable automatic sensor shutdown
-                interval.
-            sensor_vector_mapping (:obj:`np.ndarray`): Mapping matrix between
-                sensor id and vector embedding.
             show_progress (:obj:`bool`): Show observation track generation
                 progress.
-            sensor_check (:obj:`bool`): Whether to check matching sensor
-                messages. For example, whether a 'CLOSE' is followed by 'OPEN'.
+
+        Returns:
+            obs_seq, time_seq: A two-`tuple` with a `list` of observation and
+                a `list` of `datetime` time tags associated with each
+                observation.
         """
         if show_progress:
             sys.stdout.write('Generate Observations from event list.\n')
@@ -523,69 +539,42 @@ class CASASDataset:
             num_events_processed = 0
             percentage_processed = 0
 
-        observation_track = []  # to hold observations
+        obs_seq = []  # to hold observations
+        time_seq = []
         # dictionary to store current states of all sensors
         sensor_status = {sensor['name']: 0 for sensor in self.sensor_list}
+        sensor_info = {
+            sensor['name']: None for sensor in self.sensor_list
+        }
 
-        # TODO: Sensor check needs further testing
-        if sensor_check:
-            auto_shutdown = {}  # dictionary store shutdown time
-            auto_shutdown_summary = {}
-            for sensor in self.sensor_list:
-                sensor_status[sensor['name']] = 0
-                auto_shutdown[sensor['name']] = None
-                auto_shutdown_summary[sensor['name']] = 0
         # Go through all events
         for i, event in enumerate(self.event_list):
             if event['message'] == "OFF" or event['message'] == 'ABSENT' or \
                     event['message'] == 'CLOSE':
                 sensor_status[event['sensor']] = 0
-                # Record sensor in shutdown list
-                if sensor_check:
-                    auto_shutdown[event['sensor']] = 0
+                if sensor_info[event['sensor']] is not None:
+                    sensor_info[event['sensor']]['stop'] = event['datetime']
+                    sensor_info[event['sensor']] = None
             else:
-                current_observation = []
+                current_observation = {}
                 sensor_status[event['sensor']] = 1
-
-                # Check auto-shutdown
-                if sensor_check:
-                    for j in range(i, len(self.event_list)):
-                        if (self.event_list[j]['datetime'] - event['datetime'])\
-                                .total_seconds() > default_threshold:
-                            auto_shutdown[event['sensor']] = event['datetime']
-                            if auto_shutdown_summary[event['sensor']] == 0:
-                                logger.debug(
-                                    "debug_warn: %s at %s does not have a "
-                                    "closing tag matched within %d seconds" %
-                                    (event['sensor'], event['datetime'],
-                                     default_threshold))
-                            auto_shutdown_summary[event['sensor']] += 1
+                if sensor_info[event['sensor']] is not None:
+                    sensor_info[event['sensor']]['stop'] = event['datetime']
+                sensor_info[event['sensor']] = {
+                    'start': event['datetime'],
+                    'stop': None,
+                    'residents': event['resident']
+                }
 
                 # Check for auto-shutdown
                 for sensor in self.sensor_list:
                     sensor_name = sensor['name']
                     if sensor_status[sensor_name] == 1:
-                        # Add auto-shutdown if sensor check is enabled
-                        if sensor_check:
-                            if auto_shutdown[sensor_name] == 1:
-                                # Check time to see if it is down now.
-                                if (event['datetime'] -
-                                    auto_shutdown[sensor_name]).\
-                                        total_seconds() > default_off_interval:
-                                    auto_shutdown[sensor_name] = None
-                                    sensor_status[sensor_name] = 0
-                        # Append sensor
-                        if sensor_status[sensor_name] == 1:
-                            if sensor_vector_mapping is not None:
-                                current_observation.append(
-                                    sensor_vector_mapping[
-                                        self.sensor_indices_dict[sensor_name], :
-                                    ].T
-                                )
-                            else:
-                                current_observation.append(
-                                    self.sensor_indices_dict[sensor_name])
-                observation_track.append(current_observation)
+                        sensor_id = self.sensor_indices_dict[sensor_name]
+                        current_observation[sensor_id] = \
+                            sensor_info[sensor_name]
+                obs_seq.append(current_observation)
+                time_seq.append(event['datetime'])
                 if show_progress:
                     num_events_processed += 1
                     if num_events_processed > num_event_chunk:
@@ -598,7 +587,64 @@ class CASASDataset:
                 logger.debug("Obs %5d: %s" % (i, str(current_observation)))
         if show_progress:
             sys.stdout.write('progress: 100%%\n')
-        return observation_track
+        return obs_seq, time_seq
+
+    def get_observation_resident_association(self):
+        """Get observation and resident association based on sensor events
+        """
+        sensor_status = {self.sensor_indices_dict[sensor['name']]: 0
+                         for sensor in self.sensor_list}
+        sensor_occupancy = {self.sensor_indices_dict[sensor['name']]: []
+                            for sensor in self.sensor_list}
+        observation_resident_association = []
+        time_seq = []
+        for i, event in enumerate(self.event_list):
+            sensor = self.sensor_indices_dict[event['sensor']]
+            if event['message'] == "OFF" or event['message'] == 'ABSENT' or\
+                    event['message'] == 'CLOSE':
+                sensor_status[sensor] = 0
+            else:
+                sensor_occupancy[sensor] = event['resident']
+                sensor_status[sensor] = 1
+                current_observation = {}
+                for sensor in sensor_status:
+                    if sensor_status[sensor] == 1:
+                        current_observation[sensor] = \
+                            sensor_occupancy[sensor]
+                observation_resident_association.append(current_observation)
+                time_seq.append(event['datetime'])
+        return observation_resident_association, time_seq
+
+    def get_resident_to_measurement_association(self):
+        """Get each resident to measurement association
+        """
+        sensor_status = {self.sensor_indices_dict[sensor['name']]: 0
+                         for sensor in self.sensor_list}
+        sensor_occupancy = {self.sensor_indices_dict[sensor['name']]: []
+                            for sensor in self.sensor_list}
+        resident_measurement_association = {
+            resident: [] for resident in self.resident_dict
+        }
+        time_seq = []
+        for i, event in enumerate(self.event_list):
+            sensor = self.sensor_indices_dict[event['sensor']]
+            if event['message'] == "OFF" or event['message'] == 'ABSENT' or\
+                    event['message'] == 'CLOSE':
+                sensor_status[sensor] = 0
+            else:
+                sensor_occupancy[sensor] = event['resident']
+                sensor_status[sensor] = 1
+                for resident in resident_measurement_association:
+                    measurements = []
+                    for sensor in sensor_status:
+                        if sensor_status[sensor] == 1 and resident in \
+                                sensor_occupancy[sensor]:
+                            measurements.append(sensor)
+                    resident_measurement_association[resident].append(
+                        measurements
+                    )
+                time_seq.append(event['datetime'])
+        return resident_measurement_association, time_seq
 
     def summary(self):
         """Print Summary of the dataset class
