@@ -2,6 +2,7 @@ import copy
 import logging
 import numpy as np
 import scipy.stats
+from scipy.spatial import distance
 from .utils import GaussianComponent
 
 
@@ -243,3 +244,206 @@ def gm_id_estimator(gm_list):
                 gm_id_estimator.track_id += 1
                 gm.mean[-1, :] = gm_id_estimator.track_id
     return targets
+
+
+def gm_id_cluster(gm_list, z_dim):
+    """GM-PHD State Estimator by clustering algorithm
+
+    In cases where the error is higher and no single GM has a weight that goes
+    beyond 0.5, cluster algorithm is needed to assign track ID to each GMs.
+
+    Args:
+        gm_list (:obj:`list`): List of Gaussian components representing
+            posterior probability hypothesis density of multiple targets.
+        z_dim (:obj:`int`): The dimensionality of the measurement space.
+
+    Returns:
+        a `list` of Gaussian components with track ID assigned using the
+        clustering algorithm.
+    """
+    if not hasattr(gm_id_cluster, 'max_id'):
+        setattr(gm_id_cluster, 'max_id', 1)
+    max_id = getattr(gm_id_cluster, 'max_id')
+    track_gms_dict = {}
+    # Organize Gms by track ID
+    for gm in gm_list:
+        assert(isinstance(gm, GaussianComponent))
+        track_id = int(gm.mean.flatten()[-1])
+        if track_id not in track_gms_dict:
+            track_gms_dict[track_id] = []
+        track_gms_dict[track_id].append(gm)
+    # Calculate weight and determine if it needs clustering
+    for track_id in track_gms_dict:
+        expected_card = 0.
+        for gm in track_gms_dict[track_id]:
+            assert (isinstance(gm, GaussianComponent))
+            expected_card += gm.weight
+        # Round the expected cardinality. If greater than 1, form new tracks.
+        num_tracks = int(round(expected_card))
+        if num_tracks > 1 or (track_id == 0 and num_tracks > 0):
+            gm_list, max_id = _gm_cluster_assign_id(
+                gm_list=track_gms_dict[track_id],
+                track_id=track_id,
+                num_tracks=num_tracks,
+                weight_threshold=expected_card/num_tracks,
+                z_dim=z_dim,
+                max_id=max_id
+            )
+    setattr(gm_id_cluster, 'max_id', max_id)
+    return gm_list
+
+
+def _gm_cluster_assign_id(gm_list, track_id, num_tracks, weight_threshold,
+                          z_dim, max_id, max_iteration=1000):
+    """The cluster algorithm that assign a new ID to the track
+
+    Args:
+        gm_list (:obj:`list`): List of ``GaussianComponent`` representing
+            current multi-target PHD density.
+        track_id (:obj:`int`): Current track id.
+        num_tracks (:obj:`int`): The number of tracks that this list of Gaussian
+            components need to split into.
+        weight_threshold (:obj:`float`): Initial weight threshold for each newly
+            spawned track.
+        z_dim (:obj:`int`): The dimensionality of measurement space.
+        max_id (:obj:`int`): The next track ID number that can be assigned.
+        max_iteration (:obj:`int`): Max number of iterations in case that the
+            clustering algorithm does not converge and oscillates.
+
+    Returns:
+        A `list` of Gaussian components with updated track ID and the next track
+        ID that can be assigned to new tracks in the future.
+    """
+    clusters_mean = np.random.uniform(0, 1, (num_tracks, z_dim))
+    previous_clusters_mean = None
+    cluster_gms = [[] for i in range(num_tracks)]
+
+    count = 0
+    while np.any(clusters_mean != previous_clusters_mean) and \
+            count < max_iteration:
+        previous_clusters_mean = np.copy(clusters_mean)
+        # There n_tracks means, calculate the distance between each track,
+        # and sorted from high to low
+        gm_distance_matrix = _gm_cluster_distance(gm_list=gm_list,
+                                                  clusters_mean=clusters_mean,
+                                                  num_tracks=num_tracks,
+                                                  z_dim=z_dim)
+        # Assign GM to each mean where the weight of each cluster equals or
+        # just higher than the weight threshold.
+        cluster_gms = _gm_group_cluster(gm_list=gm_list,
+                                        distance_matrix=gm_distance_matrix,
+                                        weight_threshold=weight_threshold)
+        # Update mean
+        for i in range(num_tracks):
+            new_mean = np.zeros((z_dim,), dtype=np.float32)
+            new_weight = 0.
+            for gm in cluster_gms[i]:
+                new_mean += gm.mean.flatten()[0:z_dim] * gm.weight
+                new_weight += gm.weight
+            if new_weight == 0.:
+                new_weight = 1
+            clusters_mean[i, :] = new_mean / new_weight
+        # Update count
+        count += 1
+
+    # Assign ID to each cluster
+    for i in range(num_tracks):
+        # For every new track, start counting with max_id
+        if track_id == 0 and i == 0:
+            for gm in cluster_gms[i]:
+                gm.mean[-1, :] = max_id
+            max_id += 1
+        elif i != 0:
+            for gm in cluster_gms[i]:
+                gm.mean[-1, :] = max_id
+            max_id += 1
+
+    return gm_list, max_id
+
+
+def _gm_cluster_distance(gm_list, clusters_mean, num_tracks, z_dim):
+    """Calculate the distance between each Gaussian component and the center
+    of each cluster.
+
+    Args:
+        gm_list (:obj:`list`): List of Gaussian components.
+        clusters_mean (:obj:`numpy.ndarray`): An array in shape
+            `[num_cluster, z_dim]` representing the center of all clusters.
+        num_tracks (:obj:`int`): Number of tracks (or clusters).
+        z_dim (:obj:`int`): The dimensionality of the measurement space.
+
+    Returns:
+        An array of shape `[num_gm, num_cluster]` where each element in the
+        array represents the distance of a Gaussian component to the cluster.
+    """
+    gm_distance_array = np.zeros((len(gm_list), num_tracks), np.float32)
+    for i, gm in enumerate(gm_list):
+        for j in range(num_tracks):
+            gm_distance_array[i, j] = distance.euclidean(
+                gm.mean.flatten()[0:z_dim], clusters_mean[j, :]
+            )
+    return gm_distance_array
+
+
+def _gm_group_cluster(gm_list, distance_matrix, weight_threshold):
+    """Group each gm to cluster based on distance and a weight threshold.
+
+    Args:
+        gm_list (:obj:`list`): List of Gaussian components.
+        distance_matrix (:obj:`numpy.ndarray`): An array of shape
+            `[num_gm, num_cluster]` where each element in the array represents
+             the distance of a Gaussian component to the cluster.
+        weight_threshold (:obj:`float`): The average weight of each cluster.
+
+    Returns:
+        A `list` of `list` of Gaussian mixtures that belongs to each cluster.
+    """
+    gms_to_assign = set(range(len(gm_list)))
+    num_clusters = distance_matrix.shape[1]
+    gm_id_in_cluster = [[] for i in range(num_clusters)]
+    cluster_weight = [0. for i in range(num_clusters)]
+    choice = 0
+    gms_sorted_cluster_id = np.argsort(distance_matrix, axis=1)
+    # Assign gms to each cluster based on the distance between the center of
+    # each cluster and the mean of each Gaussian components with the constraint
+    # that the total weight of each cluster does not exceed weight_threshold.
+    while len(gms_to_assign) > 0 and choice < num_clusters:
+        temp_cluster_gms = [[] for i in range(num_clusters)]
+        # Group the gms to be assigned by minimum distance
+        for gm_id in gms_to_assign:
+            temp_cluster_gms[gms_sorted_cluster_id[gm_id, choice]].append(gm_id)
+        # Sort the gms of each cluster by distance (small to large)
+        for i in range(num_clusters):
+            temp_cluster_gms[i] = sorted(
+                temp_cluster_gms[i],
+                key=lambda gm_id: distance_matrix[gm_id, i]
+            )
+            for gm_id in temp_cluster_gms[i]:
+                temp_weight = cluster_weight[i] + gm_list[gm_id].weight
+                if temp_weight < weight_threshold:
+                    cluster_weight[i] = temp_weight
+                    gms_to_assign.remove(gm_id)
+                    gm_id_in_cluster[i].append(gm_id)
+                else:
+                    break
+        # Add Choice
+        choice += 1
+    # Certainly, it cannot finish assign all GMs to each cluster, thus,
+    # we need to take care of the rest of GMs that has left behind and assign
+    # them to each cluster. Ideally, they should be assigned according to
+    # distance between center of the cluster and the Gaussian component.
+    # However, a simple approximation can be used to assign the rest of
+    # Gaussian components to the nearest cluster while the total weight of
+    # that cluster is smaller than 1..
+    for gm_id in gms_to_assign:
+        for j in range(num_clusters):
+            cluster_id = gms_sorted_cluster_id[gm_id, j]
+            temp_weight = cluster_weight[cluster_id] + gm_list[gm_id].weight
+            if temp_weight < 1.5:
+                cluster_weight[cluster_id] += gm_list[gm_id].weight
+                gm_id_in_cluster[cluster_id].append(gm_id)
+                break
+    return [
+        [gm_list[gm_id] for gm_id in gm_id_in_cluster[cluster_id]]
+        for cluster_id in range(num_clusters)
+    ]
