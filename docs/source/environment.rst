@@ -27,6 +27,27 @@ Setup `MiniConda`_ on windows, simply follow the link and download the
 installer for you Windows OS.
 Run the installer to install `MiniConda`_ to your machine.
 
+Ubuntu 18.04 Setup
+~~~~~~~~~~~~~~~~~~
+
+Setup `MiniConda`_ on Linux, simple follow the link and download the bash
+installer for Linux operationg system.
+In terminal, make the downloaded bash script executable, and run it with
+`sudo` command as follows.
+
+.. code-block:: bash
+
+    $ sudo ./Miniconda3-latest-Linux-x86_64.sh
+
+In my case, I installed it under `/opt/miniconda3` so that it is accessible
+for all users.
+
+Add the path of `Miniconda` to `~/.bashrc`:
+
+.. code-block:: bash
+
+    export PATH="/opt/miniconda3/bin:$PATH"
+
 MacOS Setup
 ~~~~~~~~~~~
 
@@ -61,6 +82,19 @@ Install basic `MiniConda`_ environment using `homebrew`_
     $ conda install anaconda
     $ conda update --all
 
+
+Setup Tensorflow
+----------------
+
+For install ``tensorflow`` for your operating system, you can find
+instruction on tensorflow document page `here <https://www.tensorflow
+.org/install/>`_.
+
+Note that on Windows with Conda environment, there is a chance that an out-dated
+``html5lib`` package dependency may break the Conda setup.
+As a walk around, you can run ``$pip install html5lib==1.0b10`` to correct it.
+The fix has been merged into ``tensorflow`` source tree, but has not released
+yet.
 
 Setup Mayavi
 ------------
@@ -119,6 +153,18 @@ pyface from source (Github).
     > pip install git+https://github.com/enthought/traitsui.git
     > pip install git+https://github.com/enthought/pyface.git
     > pip install git+https://github.com/enthought/mayavi.git
+
+Ubuntu 18.04 Setup
+~~~~~~~~~~~~~~~~~~
+
+You can install the `mayavi` in the same way as in Windows.
+In addition to the previous steps, you als need to install
+`libcanberra-gtk-module` and `libcanberra-gtk3-module` using system package
+manager.
+
+.. code-block:: bash
+
+    $ sudo apt install libcanberra-gtk-module libcanberra-gtk3-module
 
 
 MacOS Setup
