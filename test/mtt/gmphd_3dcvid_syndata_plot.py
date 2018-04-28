@@ -5,7 +5,7 @@ from pymrt.visualizer.gmphd import plot3d_gmphd_track
 
 
 # Check point
-chkpt_dir = '../../result/test/phd/3dcvid_sd'
+chkpt_dir = '../../result/test/phd/3dcv_sd'
 
 
 def config_debug():
