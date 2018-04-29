@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 def sensor_distance_pixelmap(distance_matrix, sensor_list=None,
                              annotation_fontsize=8, legend=True,
-                             file_name=None):
+                             title=None, filename=None):
     """Draw the distance between sensors as a pixel map.
 
     The distance between sensors is encoded as intensity of the corresponding
@@ -19,9 +19,10 @@ def sensor_distance_pixelmap(distance_matrix, sensor_list=None,
         annotation_fontsize (:obj:`int`): Font size of the annotation on the
             pixel image.
         legend (:obj:`bool`): Plot color bar on the image generated.
-        file_name (:obj:`str`): Name of the file to save the drawing to.
+        title (:obj:`str`): Title of the plot
+        filename (:obj:`str`): Name of the file to save the drawing to.
     """
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(10, 10))
     im = ax.imshow(distance_matrix, interpolation='none', cmap='GnBu')
     if annotation_fontsize != 0:
         for i in range(distance_matrix.shape[0]):
@@ -48,7 +49,13 @@ def sensor_distance_pixelmap(distance_matrix, sensor_list=None,
                        minor=False, rotation=45)
     ax.set_yticklabels(sensor_labels, minor=False, rotation=0)
     if legend:
-        plt.colorbar(im)
+        plt.colorbar(im, fraction=0.046, pad=0.04)
+    if title is None:
+        fig.suptitle('Sensor distance')
+    else:
+        fig.suptitle(title)
     plt.tight_layout()
-    if file_name is None:
+    if filename is None:
         plt.show()
+    else:
+        plt.savefig(filename)
