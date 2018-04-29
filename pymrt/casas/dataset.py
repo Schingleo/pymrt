@@ -7,6 +7,7 @@ import copy
 import numpy as np
 import dateutil.parser
 from .site import CASASSite
+from .sensor_type import CASASSensorType
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,23 @@ class CASASDataset:
         # Additional information about the dataset
         self.description = self.data_dict[
             'description'] if 'description' in self.data_dict else ""
+
+    def enable_sensor_with_sensor_categories(self, categories):
+        """Load only certain type of sensors in the dataset if its sensor
+        category is specified.
+        """
+        all_types = self.site.get_all_sensor_types()
+        enabled_sensor_types = {}
+        for sensor_type in all_types:
+            sensor_category = CASASSensorType.get_best_category_for_sensor(
+                [sensor_type]
+            )
+            if sensor_category in categories:
+                enabled_sensor_types[sensor_type] = all_types[sensor_type]
+        if len(enabled_sensor_types) == 0:
+            logger.error('No sensors found that fits the categories provided.')
+            return
+        self.enabled_sensor_types = enabled_sensor_types
 
     def enable_sensor_with_types(self, type_array):
         """Load only certain type of sensors in the dataset
