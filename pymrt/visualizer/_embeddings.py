@@ -1,5 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.lines as mlines
+from ..casas import CASASDataset
+from ..tracking.utils import euclidean_distance_matrix
+from ..tracking.utils import cosine_distance_matrix
 
 
 def sensor_distance_pixelmap(distance_matrix, sensor_list=None,
@@ -55,6 +59,78 @@ def sensor_distance_pixelmap(distance_matrix, sensor_list=None,
     else:
         fig.suptitle(title)
     plt.tight_layout()
+    if filename is None:
+        plt.show()
+    else:
+        plt.savefig(filename)
+
+
+def plot_sensor_graph_with_embeddings(dataset, embeddings, threshold,
+                                      distance="euclidean", title=None,
+                                      filename=None):
+    """Plot sensor accessibility graph based on sensor embeddings
+
+    Plot sensor graph (weighted directed graph) using sensor embeddings
+    calculated given threshold. The sensor pair whose distance is below the
+    given threshold is considered adjacent (connected by an edge in the graph).
+
+    Args:
+        dataset (:obj:`~pymrt.casas.CASASDataset`): The dataset the embeddings
+            are calculated.
+        embeddings (:obj:`numpy.ndarray`): 2D array of sensor vector embeddings
+            of shape `[num_sensors, z_dim]`.
+        threshold (:obj:`float`): Threshold of the distance between two sensors
+            for them to be considered adjacent.
+        distance (:obj:`str`): Method used to calculate the distance between
+            two sensor embedding vectors, `euclidean` or `cosine`.
+        title (:obj:`str`): The name of the graph.
+        filename (:obj:`str`): The name of the file to save the graph.
+    """
+    assert(isinstance(dataset, CASASDataset))
+    # Calculate the distance and determine the adjancency matrix between
+    # sensors.
+    if distance == 'euclidean':
+        distance_matrix = euclidean_distance_matrix(embeddings=embeddings)
+    else:
+        distance_matrix = cosine_distance_matrix(embeddings=embeddings)
+    adjacency_matrix = (distance_matrix <= threshold)
+
+    drawing_data = dataset.site.prepare_floorplan()
+    sensor_list = [sensor['name'] for sensor in dataset.sensor_list]
+
+    fig, ax = plt.subplots(figsize=(18, 18))
+    ax.imshow(drawing_data['img'])
+    active_patch_list = []
+    # Draw sensor blocks
+    for key, patch in drawing_data['sensor_boxes'].items():
+        if key in sensor_list:
+            ax.add_patch(patch)
+            active_patch_list.append(patch)
+    # Draw sensor annotations
+    for key, text_data in drawing_data['sensor_texts'].items():
+        if key in sensor_list:
+            ax.text(*text_data, horizontalalignment='center',
+                    verticalalignment='top', zorder=3)
+    # Draw line connecting targeted sensors
+    for i in range(adjacency_matrix.shape[0]):
+        sensor_i = sensor_list[i]
+        sensor_i_patch = drawing_data['sensor_boxes'][sensor_i]
+        for j in range(adjacency_matrix.shape[1]):
+            if i != j:
+                sensor_j = sensor_list[j]
+                sensor_j_patch = drawing_data['sensor_boxes'][sensor_j]
+                if adjacency_matrix[i, j]:
+                    ax.add_line(mlines.Line2D(
+                        xdata=[sensor_i_patch.get_x(), sensor_j_patch.get_x()],
+                        ydata=[sensor_i_patch.get_y(), sensor_j_patch.get_y()],
+                        color='#D3D3D3', linestyle='-', zorder=1
+                    ))
+    # Show figure
+    if title is None:
+        title = dataset.get_name() + \
+                ' sensor graph (threshold %.2f)' % threshold
+    fig.suptitle = title
+    fig.tight_layout()
     if filename is None:
         plt.show()
     else:
