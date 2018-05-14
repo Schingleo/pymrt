@@ -5,7 +5,7 @@ from matplotlib import gridspec
 from matplotlib import pyplot as plt
 from matplotlib import colors as mcolors
 from matplotlib import patches as mpatches
-from matplotlib import transforms
+from matplotlib import lines as mlines
 from matplotlib.collections import PatchCollection
 from matplotlib.ticker import MultipleLocator
 from matplotlib.animation import FuncAnimation
@@ -224,6 +224,7 @@ def plot_observation(obs_seq, time_seq, step,
                      steps_before=20, steps_total=30,
                      resident_color=None,
                      measurement_info=None, ax=None,
+                     title=None, with_legend=True,
                      xlabel_shared=False):
     """Plot observation sequence as evolving procedure
 
@@ -236,14 +237,17 @@ def plot_observation(obs_seq, time_seq, step,
             current step.
         steps_total (:obj:`int`): Total number of observations to plot. It has
             to be larger than `steps_before`.
+        resident_color (:obj:`dict`): Color string indexed by resident name.
         measurement_info (:obj:`list`): A list of description and name
             corresponding to the measurement.
         ax (:obj:`matplotlib.ax`): Axes to be plotted on.
+        title (:obj:`str`): Plot title.
+        with_legend (:obj:`bool`): Show legend besides the plot.
         xlabel_shared (:obj:`bool`): If x-axis label is shared. If true, the
             label on x-axis is hidden.
     """
     if ax is None:
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(15, 10))
 
     if steps_total < steps_before:
         steps_total = int(1.5 * steps_before)
@@ -425,7 +429,26 @@ def plot_observation(obs_seq, time_seq, step,
                   alpha=0.7)
     ax.xaxis.grid(color='#D0D0D0', which='major', linestyle='--', linewidth=1,
                   alpha=0.7)
-
+    ax.set_xlabel('Time tag [virtual time step]')
+    ax.set_ylabel('Sensor ID')
+    if title is not None:
+        ax.set_title(title)
+    if with_legend:
+        legend_handles = []
+        for resident in prev_resident_states:
+            legend_handles.append(
+                mpatches.FancyArrowPatch([], [],
+                                         color=resident_color[resident],
+                                         label=resident)
+            )
+        legend_handles.append(
+            mlines.Line2D([], [], marker='o', color='r', label='Measurement')
+        )
+        legend_handles.append(
+            mpatches.Patch([], color='c', label='Sensor Active Window')
+        )
+        ax.legend(handles=legend_handles, bbox_to_anchor=(1.02, 1), loc=2,
+                  borderaxespad=0.)
     return patches + [scatter_points] + resident_arrows
 
 
